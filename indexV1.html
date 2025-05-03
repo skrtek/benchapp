@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hardcore Visual Benchmark</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #111; color: white; }
+        button { padding: 12px 24px; font-size: 18px; background: #ff5722; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #e64a19; }
+        #progress-container { width: 80%; margin: 20px auto; background: #333; border-radius: 4px; }
+        #progress-bar { height: 20px; background: #4CAF50; border-radius: 4px; width: 0%; transition: width 0.3s; }
+        #hidden-image { display: none; margin: 20px auto; border: 2px solid #444; max-width: 800px; max-height: 600px; }
+        #3d-container { width: 800px; height: 600px; margin: 20px auto; border: 2px solid #444; }
+        #results { margin: 20px; font-size: 18px; min-height: 100px; }
+        .grade { font-size: 32px; font-weight: bold; margin: 20px; padding: 15px; border-radius: 8px; }
+        .A { background: #4CAF50; } .B { background: #8BC34A; } .C { background: #FFC107; }
+        .D { background: #FF9800; } .F { background: #F44336; }
+        #status { margin: 10px; color: #ff9800; }
+    </style>
+</head>
+<body>
+    <h1>HARDCORE VISUAL BENCHMARK</h1>
+    <p>Reveals a hidden image through raw computing power + 3D stress test</p>
+    
+    <button id="run">BEGIN STRESS TEST</button>
+    <div id="status">Ready to begin...</div>
+    <div id="progress-container"><div id="progress-bar"></div></div>
+    
+    <div id="hidden-image-container">
+        <img id="hidden-image" src="" alt="Benchmark Reward">
+    </div>
+    
+    <div id="3d-container"></div>
+    <div id="results"></div>
+    <div id="grade" class="grade" style="display: none;"></div>
+
+    <!-- Three.js for 3D test -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        // ===== Configuration =====
+        const IMAGE_REVEAL_STEPS = 30;  // Reduced for faster testing
+        const THREEJS_PARTICLES = 20000; // Reduced particle count
+        const TEST_DURATION = 2000; // 2 seconds for 3D test
+        const TEST_IMAGE_URL = 'https://source.unsplash.com/random/800x600?nature,technology'; // More reliable image source
+
+        // ===== DOM Elements =====
+        const runButton = document.getElementById("run");
+        const progressBar = document.getElementById("progress-bar");
+        const hiddenImage = document.getElementById("hidden-image");
+        const container3D = document.getElementById("3d-container");
+        const resultsDiv = document.getElementById("results");
+        const gradeDiv = document.getElementById("grade");
+        const statusEl = document.getElementById("status");
+
+        // ===== Benchmark State =====
+        let benchmarkRunning = false;
+        let totalScore = 0;
+
+        // Update status message
+        function updateStatus(message) {
+            statusEl.textContent = message;
+            console.log(message); // Also log to console for debugging
+        }
+
+        // Preload a test image with fallback
+        function preloadImage() {
+            return new Promise((resolve, reject) => {
+                updateStatus("Loading test image...");
+                
+                // Fallback image data URL in case external image fails
+                const fallbackImage = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNjAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMjQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPkJlbmNobWFyayBUZXN0IEltYWdlPC90ZXh0Pjwvc3ZnPg==';
+                
+                hiddenImage.onload = () => {
+                    updateStatus("Test image loaded");
+                    resolve();
+                };
+                
+                hiddenImage.onerror = () => {
+                    updateStatus("Using fallback image");
+                    hiddenImage.src = fallbackImage;
+                    resolve(); // Resolve with fallback
+                };
+                
+                // Load image with cache busting
+                hiddenImage.src = TEST_IMAGE_URL + '&' + Date.now();
+            });
+        }
+
+        // ===== Main Benchmark =====
+        runButton.addEventListener("click", async () => {
+            if (benchmarkRunning) return;
+            
+            try {
+                // Initialize benchmark
+                benchmarkRunning = true;
+                runButton.disabled = true;
+                resultsDiv.innerHTML = "";
+                gradeDiv.style.display = "none";
+                totalScore = 0;
+                
+                // Reset UI
+                hiddenImage.style.display = "none";
+                hiddenImage.style.opacity = "0";
+                container3D.innerHTML = "";
+                progressBar.style.width = "0%";
+                
+                // Preload image
+                await preloadImage();
+                
+                // Phase 1: CPU Stress
+                updateStatus("Running CPU test...");
+                resultsDiv.innerHTML = "<h3>🔥 PHASE 1: CPU Stress (Image Reveal)</h3>";
+                const cpuScore = await runImageRevealTest();
+                totalScore += cpuScore * 1.5;
+                
+                // Phase 2: GPU Stress
+                updateStatus("Running GPU test...");
+                resultsDiv.innerHTML += "<h3>🚀 PHASE 2: GPU Stress (3D Particles)</h3>";
+                const gpuScore = await run3DStressTest();
+                totalScore += gpuScore * 2.0;
+                
+                // Final Results
+                showFinalGrade(totalScore);
+                updateStatus("Benchmark complete!");
+            } catch (error) {
+                console.error("Benchmark error:", error);
+                resultsDiv.innerHTML += `<div style="color:red">Error: ${error.message}</div>`;
+                updateStatus("Benchmark failed - see console for details");
+            } finally {
+                benchmarkRunning = false;
+                runButton.disabled = false;
+            }
+        });
+
+        // ===== Phase 1: CPU-Bound Image Reveal =====
+        async function runImageRevealTest() {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            canvas.width = Math.min(800, hiddenImage.naturalWidth);
+            canvas.height = Math.min(600, hiddenImage.naturalHeight);
+            
+            // Start with blank canvas
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            hiddenImage.style.display = "block";
+            
+            const startTime = performance.now();
+            
+            // Process in chunks with progress updates
+            for (let step = 0; step <= IMAGE_REVEAL_STEPS; step++) {
+                if (!benchmarkRunning) break;
+                
+                // Process every 4th pixel for better performance
+                for (let y = 0; y < canvas.height; y += 2) {
+                    for (let x = 0; x < canvas.width; x += 2) {
+                        if ((x + y) % IMAGE_REVEAL_STEPS === step % IMAGE_REVEAL_STEPS) {
+                            const pixel = getPixelFromImage(x, y, hiddenImage);
+                            ctx.fillStyle = `rgb(${pixel.r}, ${pixel.g}, ${pixel.b})`;
+                            ctx.fillRect(x, y, 2, 2);
+                        }
+                    }
+                }
+                
+                // Update progress
+                const progress = (step / IMAGE_REVEAL_STEPS) * 50;
+                progressBar.style.width = `${progress}%`;
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+            
+            // Draw the final canvas onto the image
+            hiddenImage.src = canvas.toDataURL();
+            const time = performance.now() - startTime;
+            hiddenImage.style.opacity = "1";
+            return calculateScore("CPU", time);
+        }
+
+        function getPixelFromImage(x, y, img) {
+            const tempCanvas = document.createElement("canvas");
+            const tempCtx = tempCanvas.getContext("2d");
+            tempCanvas.width = 1;
+            tempCanvas.height = 1;
+            tempCtx.drawImage(img, -x, -y);
+            const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+            return { r: pixel[0], g: pixel[1], b: pixel[2] };
+        }
+
+        // ===== Phase 2: GPU-Bound 3D Stress =====
+        function run3DStressTest() {
+            return new Promise((resolve) => {
+                updateStatus("Initializing 3D test...");
+                
+                // Set up Three.js scene
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(75, 800/600, 0.1, 1000);
+                const renderer = new THREE.WebGLRenderer({ antialias: true });
+                
+                try {
+                    renderer.setSize(800, 600);
+                    container3D.appendChild(renderer.domElement);
+                    
+                    // Create particles with colors
+                    const particles = new THREE.BufferGeometry();
+                    const positions = new Float32Array(THREEJS_PARTICLES * 3);
+                    const colors = new Float32Array(THREEJS_PARTICLES * 3);
+                    
+                    for (let i = 0; i < THREEJS_PARTICLES; i++) {
+                        positions[i * 3] = (Math.random() - 0.5) * 10;
+                        positions[i * 3 + 1] = (Math.random() - 0.5) * 10;
+                        positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+                        
+                        colors[i * 3] = Math.random();
+                        colors[i * 3 + 1] = Math.random();
+                        colors[i * 3 + 2] = Math.random();
+                    }
+                    
+                    particles.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+                    particles.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+                    
+                    const particleMaterial = new THREE.PointsMaterial({
+                        size: 0.1,
+                        vertexColors: true,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+                    
+                    const particleSystem = new THREE.Points(particles, particleMaterial);
+                    scene.add(particleSystem);
+                    camera.position.z = 5;
+                    
+                    // Animation loop
+                    let frames = 0;
+                    const startTime = performance.now();
+                    
+                    function animate() {
+                        if (!benchmarkRunning || performance.now() - startTime > TEST_DURATION) {
+                            const time = performance.now() - startTime;
+                            const score = calculateScore("GPU", time);
+                            container3D.innerHTML = "";
+                            resolve(score);
+                            return;
+                        }
+                        
+                        requestAnimationFrame(animate);
+                        
+                        particleSystem.rotation.x += 0.01;
+                        particleSystem.rotation.y += 0.005;
+                        
+                        frames++;
+                        const progress = 50 + (frames / (TEST_DURATION/16)) * 50;
+                        progressBar.style.width = `${Math.min(100, progress)}%`;
+                        renderer.render(scene, camera);
+                    }
+                    
+                    updateStatus("Running 3D stress test...");
+                    animate();
+                } catch (error) {
+                    console.error("3D Test Error:", error);
+                    container3D.innerHTML = `<div style="color:red">3D Test Failed: ${error.message}</div>`;
+                    resolve(100); // Minimum score if 3D fails
+                }
+            });
+        }
+
+        // ===== Grading System =====
+        function calculateScore(type, time) {
+            let baseScore = type === "CPU" ? 100000 / time : 50000 / time;
+            baseScore = Math.round(baseScore * 100) / 100; // Round to 2 decimal places
+            
+            resultsDiv.innerHTML += `
+                <div>${type} Time: <strong>${(time/1000).toFixed(2)}s</strong> | 
+                Score: <strong>${baseScore}</strong></div>
+            `;
+            return baseScore;
+        }
+
+        function showFinalGrade(totalScore) {
+            let grade, comment;
+            totalScore = Math.round(totalScore);
+            
+            if (totalScore > 4000) grade = "A", comment = "Elite Performance!";
+            else if (totalScore > 2500) grade = "B", comment = "Great for Gaming!";
+            else if (totalScore > 1500) grade = "C", comment = "Average System";
+            else if (totalScore > 800) grade = "D", comment = "Below Average";
+            else grade = "F", comment = "Needs Upgrade!";
+            
+            gradeDiv.style.display = "block";
+            gradeDiv.className = `grade ${grade}`;
+            gradeDiv.innerHTML = `FINAL GRADE: ${grade}<br><small>${comment} (Score: ${totalScore})</small>`;
+        }
+    </script>
+</body>
+</html>
