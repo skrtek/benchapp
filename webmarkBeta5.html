@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SKRTEK System Benchmark</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #111; color: white; }
+        button { padding: 12px 24px; font-size: 18px; background: #ff5722; color: white; border: none; border-radius: 4px; cursor: pointer; margin: 10px; }
+        button:hover { background: #e64a19; }
+        #progress-container { width: 80%; margin: 20px auto; background: #333; border-radius: 4px; }
+        #progress-bar { height: 20px; background: #4CAF50; border-radius: 4px; width: 0%; transition: width 0.3s; }
+        #3d-container { width: 800px; height: 600px; margin: 20px auto; border: 2px solid #444; }
+        #results { margin: 20px; font-size: 18px; min-height: 100px; text-align: left; max-width: 800px; margin-left: auto; margin-right: auto; }
+        .grade { font-size: 32px; font-weight: bold; margin: 20px; padding: 15px; border-radius: 8px; }
+        .A { background: #4CAF50; } .B { background: #8BC34A; } .C { background: #FFC107; }
+        .D { background: #FF9800; } .F { background: #F44336; }
+        #status { margin: 10px; color: #ff9800; }
+        .test-result { margin: 15px 0; padding: 10px; background: #222; border-radius: 5px; }
+        .test-title { font-weight: bold; color: #ff9800; }
+        .test-metrics { display: flex; justify-content: space-between; margin-top: 5px; }
+        .final-score { font-size: 24px; margin: 20px 0; }
+        #system-info { margin: 20px; padding: 15px; background: #222; border-radius: 5px; text-align: left; max-width: 800px; margin-left: auto; margin-right: auto; }
+        .worker-status { color: #4CAF50; font-weight: bold; }
+        .score-bar { height: 20px; background: #333; border-radius: 4px; margin: 10px 0; }
+        .score-fill { height: 100%; border-radius: 4px; background: #4CAF50; width: 0%; }
+        .realistic-value { font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>SKRTEK SYSTEM BENCHMARK</h1>
+    <p>Professional Grade CPU/GPU Stress Test</p>
+    
+    <button id="run">BEGIN BENCHMARK</button>
+    <div id="status">Ready to begin...</div>
+    <div id="progress-container"><div id="progress-bar"></div></div>
+    
+    <div id="3d-container"></div>
+    <div id="system-info"></div>
+    <div id="worker-status" class="worker-status"></div>
+    <div id="results"></div>
+    <div id="grade" class="grade" style="display: none;"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        // ===== Realistic Configuration =====
+        const CPU_TEST_DURATION = 10000; // 10 seconds
+        const GPU_TEST_DURATION = 10000; // 10 seconds
+        const THREEJS_PARTICLES = 100000; // 100K particles
+        const CPU_WORKERS = 8; // Max workers
+        const REFERENCE_OPS_PER_SEC = 2000000; // Baseline for score calculation
+
+        // ===== DOM Elements =====
+        const runButton = document.getElementById("run");
+        const progressBar = document.getElementById("progress-bar");
+        const container3D = document.getElementById("3d-container");
+        const resultsDiv = document.getElementById("results");
+        const gradeDiv = document.getElementById("grade");
+        const statusEl = document.getElementById("status");
+        const systemInfoEl = document.getElementById("system-info");
+        const workerStatusEl = document.getElementById("worker-status");
+
+        // ===== Benchmark State =====
+        let benchmarkRunning = false;
+        let testResults = {
+            cpu: { score: 0, time: 0, operations: 0, workers: 0, opsPerSec: 0 },
+            gpu: { score: 0, time: 0, fps: 0 }
+        };
+
+        // Detect system info
+        function detectSystemInfo() {
+            const cores = navigator.hardwareConcurrency || 4;
+            testResults.cpu.workers = Math.min(CPU_WORKERS, cores);
+            
+            let info = "<div class='test-title'>System Information</div>";
+            info += `<div>CPU Cores: ${cores} (Using ${testResults.cpu.workers} workers)</div>`;
+            info += `<div>User Agent: ${navigator.userAgent}</div>`;
+            info += `<div>WebGL: ${detectWebGL() ? 'Supported' : 'Not Supported'}</div>`;
+            systemInfoEl.innerHTML = info;
+        }
+
+        function detectWebGL() {
+            try {
+                const canvas = document.createElement('canvas');
+                return !!window.WebGLRenderingContext && 
+                    (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'));
+            } catch(e) {
+                return false;
+            }
+        }
+
+        function updateStatus(message) {
+            statusEl.textContent = message;
+            console.log(message);
+        }
+
+        // ===== Main Benchmark =====
+        runButton.addEventListener("click", async () => {
+            if (benchmarkRunning) return;
+            
+            try {
+                // Initialize benchmark
+                benchmarkRunning = true;
+                runButton.disabled = true;
+                resultsDiv.innerHTML = "";
+                gradeDiv.style.display = "none";
+                testResults = {
+                    cpu: { score: 0, time: 0, operations: 0, workers: 0, opsPerSec: 0 },
+                    gpu: { score: 0, time: 0, fps: 0 }
+                };
+                
+                // Reset UI
+                container3D.innerHTML = "";
+                progressBar.style.width = "0%";
+                
+                detectSystemInfo();
+                
+                // Phase 1: CPU Stress Test
+                updateStatus("Running CPU benchmark...");
+                await runCPUTest();
+                
+                // Phase 2: GPU Stress Test
+                updateStatus("Running GPU benchmark...");
+                await runGPUTest();
+                
+                // Calculate final score (0-1000 scale)
+                const totalScore = calculateFinalScore();
+                
+                // Show final results
+                showDetailedResults(totalScore);
+                updateStatus("Benchmark complete!");
+            } catch (error) {
+                console.error("Benchmark error:", error);
+                resultsDiv.innerHTML += `<div style="color:red">Error: ${error.message}</div>`;
+                updateStatus("Benchmark failed - see console for details");
+            } finally {
+                benchmarkRunning = false;
+                runButton.disabled = false;
+            }
+        });
+
+        // ===== CPU Stress Test =====
+        async function runCPUTest() {
+            const startTime = performance.now();
+            let totalOperations = 0;
+            let completedWorkers = 0;
+            
+            // Create Web Workers
+            const workerCount = testResults.cpu.workers;
+            workerStatusEl.textContent = `Running ${workerCount} CPU workers...`;
+            
+            for (let i = 0; i < workerCount; i++) {
+                const worker = new Worker(URL.createObjectURL(new Blob([`
+                    let operations = 0;
+                    const start = performance.now();
+                    
+                    // Fixed number of operations per batch
+                    const BATCH_SIZE = 100000;
+                    
+                    function processBatch() {
+                        let sum = 0;
+                        for (let i = 0; i < BATCH_SIZE; i++) {
+                            // Realistic math workload
+                            sum += Math.sin(i * 0.01) * Math.cos(i * 0.01);
+                        }
+                        operations += BATCH_SIZE;
+                        return sum;
+                    }
+                    
+                    // Report progress periodically
+                    function reportProgress() {
+                        self.postMessage({ 
+                            type: 'progress', 
+                            ops: operations,
+                            time: performance.now() - start
+                        });
+                    }
+                    
+                    // Main work loop
+                    self.onmessage = (e) => {
+                        if (e.data === 'stop') {
+                            self.postMessage({ type: 'result', ops: operations });
+                            self.close();
+                        }
+                    };
+                    
+                    // Initial progress report
+                    reportProgress();
+                    
+                    // Process batches with setImmediate to prevent stack overflow
+                    function workLoop() {
+                        processBatch();
+                        if (performance.now() - start < ${CPU_TEST_DURATION}) {
+                            if (operations % (BATCH_SIZE * 10) === 0) {
+                                reportProgress();
+                            }
+                            setTimeout(workLoop, 0);
+                        } else {
+                            self.postMessage({ type: 'result', ops: operations });
+                            self.close();
+                        }
+                    }
+                    
+                    workLoop();
+                `], { type: 'application/javascript' })));
+                
+                worker.onmessage = (e) => {
+                    if (e.data.type === 'progress') {
+                        // Calculate realistic operations per second
+                        const opsPerSec = e.data.ops / (e.data.time / 1000);
+                        workerStatusEl.textContent = 
+                            `CPU Workers: ${workerCount} @ ${Math.round(opsPerSec).toLocaleString()} ops/sec`;
+                    } else if (e.data.type === 'result') {
+                        totalOperations += e.data.ops;
+                        completedWorkers++;
+                        if (completedWorkers === workerCount) {
+                            finishCPUTest(startTime, totalOperations);
+                        }
+                    }
+                };
+                
+                // Stop worker after test duration
+                setTimeout(() => worker.postMessage('stop'), CPU_TEST_DURATION);
+            }
+            
+            // Progress updates
+            const progressInterval = setInterval(() => {
+                const elapsed = performance.now() - startTime;
+                const progress = (elapsed / CPU_TEST_DURATION) * 50;
+                progressBar.style.width = `${progress}%`;
+                
+                if (elapsed >= CPU_TEST_DURATION || completedWorkers === workerCount) {
+                    clearInterval(progressInterval);
+                }
+            }, 100);
+            
+            // Wait for all workers to complete
+            await new Promise(resolve => {
+                const checkComplete = setInterval(() => {
+                    if (completedWorkers === workerCount) {
+                        clearInterval(checkComplete);
+                        resolve();
+                    }
+                }, 100);
+            });
+        }
+
+        function finishCPUTest(startTime, operations) {
+            const time = performance.now() - startTime;
+            const opsPerSec = (operations / time) * 1000;
+            
+            testResults.cpu.time = time;
+            testResults.cpu.operations = operations;
+            testResults.cpu.opsPerSec = opsPerSec;
+            // Score based on operations per second compared to reference
+            testResults.cpu.score = Math.min(500, Math.round((opsPerSec / REFERENCE_OPS_PER_SEC) * 500));
+            workerStatusEl.textContent = `CPU Test Complete: ${Math.round(opsPerSec).toLocaleString()} ops/sec`;
+        }
+
+        // ===== GPU Stress Test =====
+        function runGPUTest() {
+            return new Promise((resolve) => {
+                updateStatus("Initializing GPU test...");
+                
+                // Set up Three.js scene
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(75, 800/600, 0.1, 5000);
+                const renderer = new THREE.WebGLRenderer({ 
+                    antialias: false,
+                    powerPreference: "high-performance"
+                });
+                
+                try {
+                    renderer.setSize(800, 600);
+                    container3D.appendChild(renderer.domElement);
+                    
+                    // Create particle system
+                    const particles = new THREE.BufferGeometry();
+                    const positions = new Float32Array(THREEJS_PARTICLES * 3);
+                    const colors = new Float32Array(THREEJS_PARTICLES * 3);
+                    const sizes = new Float32Array(THREEJS_PARTICLES);
+                    
+                    for (let i = 0; i < THREEJS_PARTICLES; i++) {
+                        positions[i * 3] = (Math.random() - 0.5) * 2000;
+                        positions[i * 3 + 1] = (Math.random() - 0.5) * 2000;
+                        positions[i * 3 + 2] = (Math.random() - 0.5) * 2000;
+                        
+                        colors[i * 3] = Math.random();
+                        colors[i * 3 + 1] = Math.random();
+                        colors[i * 3 + 2] = Math.random();
+                        
+                        sizes[i] = Math.random() * 2 + 1;
+                    }
+                    
+                    particles.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+                    particles.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+                    particles.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+                    
+                    const particleMaterial = new THREE.PointsMaterial({
+                        size: 1.5,
+                        vertexColors: true,
+                        transparent: true,
+                        opacity: 0.9,
+                        sizeAttenuation: true
+                    });
+                    
+                    const particleSystem = new THREE.Points(particles, particleMaterial);
+                    scene.add(particleSystem);
+                    
+                    // Add lighting
+                    const light1 = new THREE.DirectionalLight(0xffffff, 1);
+                    light1.position.set(1, 1, 1).normalize();
+                    scene.add(light1);
+                    
+                    camera.position.z = 1000;
+                    
+                    // Animation loop
+                    let frames = 0;
+                    const startTime = performance.now();
+                    let lastFpsUpdate = startTime;
+                    let fps = 0;
+                    
+                    function animate() {
+                        if (!benchmarkRunning || performance.now() - startTime > GPU_TEST_DURATION) {
+                            const time = performance.now() - startTime;
+                            testResults.gpu.time = time;
+                            testResults.gpu.fps = Math.round((frames * 1000) / time);
+                            // Score based on FPS (60 FPS = 500 points)
+                            testResults.gpu.score = Math.min(500, Math.round((testResults.gpu.fps / 60) * 500));
+                            container3D.innerHTML = "";
+                            resolve();
+                            return;
+                        }
+                        
+                        requestAnimationFrame(animate);
+                        
+                        // Animate particles
+                        const positions = particleSystem.geometry.attributes.position.array;
+                        const time = performance.now() / 1000;
+                        
+                        for (let i = 0; i < positions.length; i += 3) {
+                            positions[i] += Math.sin(time * 2 + i * 0.01) * 1.5;
+                            positions[i+1] += Math.cos(time * 1.5 + i * 0.01) * 1.5;
+                            positions[i+2] += Math.sin(time * 0.5 + i * 0.005) * 0.8;
+                        }
+                        
+                        particleSystem.geometry.attributes.position.needsUpdate = true;
+                        particleSystem.rotation.x += 0.01;
+                        particleSystem.rotation.y += 0.005;
+                        
+                        frames++;
+                        
+                        // Update FPS counter
+                        if (performance.now() - lastFpsUpdate > 500) {
+                            fps = Math.round((frames * 1000) / (performance.now() - startTime));
+                            updateStatus(`GPU Test: ${fps} FPS`);
+                            lastFpsUpdate = performance.now();
+                        }
+                        
+                        // Update progress
+                        const elapsed = performance.now() - startTime;
+                        const progress = 50 + (elapsed / GPU_TEST_DURATION) * 50;
+                        progressBar.style.width = `${progress}%`;
+                        
+                        renderer.render(scene, camera);
+                    }
+                    
+                    animate();
+                } catch (error) {
+                    console.error("GPU Test Error:", error);
+                    container3D.innerHTML = `<div style="color:red">GPU Test Failed: ${error.message}</div>`;
+                    testResults.gpu.score = 100;
+                    resolve();
+                }
+            });
+        }
+
+        // ===== Scoring System =====
+        function calculateFinalScore() {
+            // Weighted score (CPU 60%, GPU 40%)
+            const totalScore = Math.min(1000, 
+                Math.round(testResults.cpu.score * 0.6 + testResults.gpu.score * 0.4)
+            );
+            
+            // Ensure score is between 0-1000
+            return Math.max(0, Math.min(1000, totalScore));
+        }
+
+        // ===== Results Display =====
+        function showDetailedResults(totalScore) {
+            // Calculate percentage for visual bars
+            const cpuPercent = Math.min(100, (testResults.cpu.score / 500) * 100);
+            const gpuPercent = Math.min(100, (testResults.gpu.score / 500) * 100);
+            const totalPercent = Math.min(100, (totalScore / 1000) * 100);
+            
+            resultsDiv.innerHTML = `
+                <div class="test-result">
+                    <div class="test-title">CPU PERFORMANCE</div>
+                    <div>${testResults.cpu.workers} cores @ <span class="realistic-value">${Math.round(testResults.cpu.opsPerSec).toLocaleString()}</span> ops/sec</div>
+                    <div class="score-bar"><div class="score-fill" style="width: ${cpuPercent}%"></div></div>
+                    <div class="test-metrics">
+                        <span>Time: ${(testResults.cpu.time/1000).toFixed(2)}s</span>
+                        <span>Score: ${testResults.cpu.score}/500</span>
+                    </div>
+                </div>
+                
+                <div class="test-result">
+                    <div class="test-title">GPU PERFORMANCE</div>
+                    <div>${THREEJS_PARTICLES.toLocaleString()} particles @ ${testResults.gpu.fps} FPS</div>
+                    <div class="score-bar"><div class="score-fill" style="width: ${gpuPercent}%"></div></div>
+                    <div class="test-metrics">
+                        <span>Time: ${(testResults.gpu.time/1000).toFixed(2)}s</span>
+                        <span>Score: ${testResults.gpu.score}/500</span>
+                    </div>
+                </div>
+                
+                <div class="final-score">
+                    <div>TOTAL SCORE: ${totalScore}/1000</div>
+                    <div class="score-bar"><div class="score-fill" style="width: ${totalPercent}%"></div></div>
+                </div>
+            `;
+            
+            // Show final grade
+            let grade, comment;
+            if (totalScore >= 900) {
+                grade = "A"; comment = "Elite Performance! Top 1%";
+            } else if (totalScore >= 750) {
+                grade = "B"; comment = "Excellent Performance";
+            } else if (totalScore >= 600) {
+                grade = "C"; comment = "Good Performance";
+            } else if (totalScore >= 400) {
+                grade = "D"; comment = "Average Performance";
+            } else {
+                grade = "F"; comment = "Below Average";
+            }
+            
+            gradeDiv.style.display = "block";
+            gradeDiv.className = `grade ${grade}`;
+            gradeDiv.innerHTML = `
+                FINAL GRADE: ${grade}<br>
+                <small>${comment}</small>
+            `;
+            
+            progressBar.style.width = "100%";
+            workerStatusEl.textContent = "Benchmark complete";
+        }
+    </script>
+</body>
+</html>
